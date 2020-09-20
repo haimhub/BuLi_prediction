@@ -1,0 +1,659 @@
+---
+title: 'Predicting football results of the german bundesliga'
+subtitle: |
+  | HarvardX project submission
+  | PH125.9x Data Science
+  | - 
+  | Capstone "CYO"
+author: 'Author: Martin Haitzmann^[martin.c.haitzmann@gmail.com]'
+date: Last updated \today
+output:
+  pdf_document:
+    highlight: tango
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+editor_options:
+  chunk_output_type: console
+geometry: "left=4cm,right=2cm,top=2cm,bottom=2cm"
+urlcolor: blue
+header-includes:
+- \usepackage{float}
+- \floatplacement{figure}{H}
+- \usepackage{caption}
+- \captionsetup[figure]{labelformat=empty}
+- \captionsetup[table]{labelformat=empty}
+references:
+- id: rafa
+  title: Introduction to Data Science
+  author:
+  - family: Irizarry
+    given: Rafael A.
+  URL: 'https://leanpub.com/datasciencebook'
+  issued:
+    year: 2019
+- id: greenhough
+  title: Football goal distributions and extremal statistics
+  author:
+  - family: Greenhough, Birch, Chapman, Rowlands
+    given: 
+  URL: 'https://arxiv.org/pdf/cond-mat/0110605.pdf'
+  issued:
+    year: 2002
+- id: maher
+  title: Modelling association football scores 
+  author:
+  - family: Maher
+    given: M. J. 
+  URL: 'http://www.90minut.pl/misc/maher.pdf'
+  issued:
+    year: 1982
+- id: dixoncoles
+  title: Modelling Association Football Scores and Inefficiencies in the Football Betting Market
+  author:
+  - family: Dixon, Coles
+    given: Mark. J., Stuart G.  
+  URL: 'https://tolstoy.newcastle.edu.au/R/e8/help/att-6544/dixoncoles97.pdf'
+  issued:
+    year: 1997
+- id: hickman
+  title: An Introduction to Modelling Soccer Matches in R
+  author:
+  - family: Hickman
+    given: Robert
+  URL: 'https://www.robert-hickman.eu/post/dixon_coles_1/'
+  issued:
+    year: 2019
+- id: sheehan
+  title: Predicting Football Results With Statistical Modelling
+  author:
+  - family: Sheehan
+    given: David
+  URL: 'https://dashee87.github.io/football/python/predicting-football-results-with-statistical-modelling-dixon-coles-and-time-weighting/'
+  issued:
+    year: 2018
+---
+
+# Overview
+
+Football (commonly used wording in Europe, in the US rather referred to as Soccer)^[https://en.wikipedia.org/wiki/Association_football] is one of the worlds most popular sports games. It is a low scoring game, where two opposing teams, each consisting of 11 team members (10 players and one goalkeeper), try to score goals in 90 minutes of playing time (two half's, each 45 minutes with a 15 minute break in between). In case of knockout games, like in cup competitions, the 90 minutes can be extended to another 2x15 minutes of playing time and possible penalty shootout to get a winner. In common national league competitions, however, ties resp. draws^[both teams scoring the same amount of goals after 90 minutes] are also possible. National league competitions in Europe are organized in seasons, usually lasting from September to Mai (some leagues have a one month winter break in January). 
+
+Predicting the results of games is a common hobby of fans, some of them also trying to earn extra money with bets. Thus, it is about predicting individual games results, but also e.g. giving bets on who will be the next winner of the complete league competition. These questions became of special importance in the most recent season (2019/2020) for another reason. Almost all European league competitions needed to be suspended in the middle of march 2020 due to COVID-19 pandemic related lock-downs. Therefore, at that point in time, the season was roughly spoken to an extent of 2/3 finished. With the open question in April and May if leagues could be continued, it was not any more only about the pure personal interest, who would have won the league. Rather, as the final standings of the leagues also have impacts on future competitions (teams get relegated/promoted or are allowed to participate in further competitions the subsequent season, like the European champions league), it became a question of more common interest. The more, as such competitions have a significant impact on the  participating clubs income and prestige as well. 
+
+>So, who would have won the league? Who would have made it in the group of teams qualified for the European champions league competition? Who would have needed to relegate?
+
+Very interesting questions from a data scientist's and sports fan's point of view! This report tries to find answers to these questions focusing on the German bundesliga. The future remains unpredictable, as we cannot really model a competition that never existed that way before (matches without viewers in the stadium after a complete lock-down). However, it is about analyzing and developing ways on how to predict results of soccer game. Exciting enough! 
+
+The approach was to first *find suitable data* on past match results. [Kaggle](https://www.kaggle.com/datasets?search=soccer) offered some interesting soccer related data-sets, partly with plenty of features regarding team and player performances, but the analysis here required very recent data. Furthermore, as this report should only be the starting point for the authors personal interest in analyzing and predicting soccer games, regularly updated data sources were searched. Such a source was found in [openfootball](https://github.com/openfootball). It seems to be a nicely organized open access project with some contributors. Having decided for this data source, an exploratory analysis of the data revealed for the german bundesliga only results of past matches to be available. There are tables in the SQLLite database that would refer to players as well, but unfortunately these tables were not filled with information. However, as the database structure is there, the data will perhaps be extended at some point in the future. Perhaps also an opportunity then to bring this project to the next step . ***Long story short, soccer predictions based solely on past results is the main focus in this analysis.***
+
+During *data exploration and model development* two possibilities of possible predictions became clearer: It seemed obvious from the beginning that one could not only predict the expected league ranks, but that it would rather be necessary to predict the results of the remaining matches and to construct the final table then. It turned out that predicting the results only (team1 wins, draw, team2 wins) using e.g. classification trees leads to the successful building of a final table, but in the end there is the theoretical possibility that ranks in the final table can be decided by scored and received goals in case of teams with the same amount of points. Thus, the possibility of simulating the scores of each game were explored as well, mainly based on the idea, that football scores might be modeled with Poisson distribution, as pointed out by several analysis in the past^[@maher and @dixoncoles were among those preparing the statistical analysis of soccer predictions. The ideas are also nicely summarized in the blogs of @sheehan and @hickman].  
+
+Although this report successfully built a model for predicting soccer games, luckily the leagues were able to finish with games without spectators and the answers to the questions were found in reality and not by simulations.
+
+```{r, eval = TRUE, echo = FALSE, warning=FALSE, message=FALSE, results='asis'}
+rm(list = ls())
+options(pillar.sigfig = 4)
+
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(captioner)) install.packages("captioner", repos = "http://cran.us.r-project.org")
+
+knitr::opts_chunk$set(tidy = FALSE, cache.extra = packageVersion('tufte'), 
+kable.force.latex = TRUE)
+
+kable1 <- function(data) {
+  knitr::kable(data, booktabs = TRUE, digits = 5, row.names = FALSE, format = "latex") %>% 
+    kable_styling(latex_options =c("striped", "scale_down"))
+}
+
+########################################################
+# Functions to automatized figure and table references
+table_captions <- captioner::captioner(prefix = "Tab.")
+figure_captions <- captioner::captioner(prefix = "Fig.")
+
+t.ref <- function(label) {
+  stringr::str_extract(table_captions(label), "[^:]*")
+}
+
+f.ref <- function(label) {
+  stringr::str_extract(figure_captions(label), "[^:]*")
+}
+knitr::opts_knit$set(kable.force.latex = TRUE)
+tab_size <- 10
+########################################################
+
+#setwd("H:/Personal/Training/edxDataScience/cap_f")
+#read data and functions
+source("./BuLi_prediction.R")
+```
+
+# Analysis and methods
+
+This project starts as a one time analysis for the HavardX data science course, but the personal intention is to further dig into that topic. For that reason the preference was not to build the analysis on a once uploaded data-set like the ones in [Kaggle](https://www.kaggle.com/datasets?search=soccer), but to rely on data that are regularly updated. [openfootball](https://github.com/openfootball)  seemed to be very promising in that respect. It is a privately initiated project offering open public domain football data-sets in a well defined data structure. 
+
+The relevant data regarding the german bundesliga  is downloaded from [openfootball](https://github.com/openfootball) as a SQLLite database. The database contains different tables for a flexible use of data. In general, a table structure as shown in `r f.ref("footballdb-models")` is available.
+
+```{r, echo=FALSE, fig.cap= figure_captions("footballdb-models", "Database structure as published by openfootball on github"), out.width = '100%', fig.fullwidth = T, fig.pos="h"}
+graph.in <- paste0(rel_data_dir, "/footballdb-models.png")
+knitr::include_graphics(graph.in)
+```
+
+An SQL query joining the different relevant pieces of information together finally leads to a single data.frame with extracted match results containing seasons from 2000 on-wards. To be more precise, in each season 306 matches need to be played.
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+table(matches_all$season)
+```
+
+18 teams compete in home and away games, resulting in 9 games per round. Altogether 34 rounds are necessary, to complete the season (every team competes against 17 others, thus 17*2 = 34).
+
+As already outlined, openfootball provides information on the result of each game. The variables are shortly described in `r t.ref("variables")`.
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+head(matches_all[,rel_vars])
+
+# cbind(rel_vars, rel_vars_txt) %>% kable(., caption = table_captions("variables", "Available variables for analysis.")) %>%
+# kable_styling(latex_options = "striped")
+
+kable(cbind(rel_vars, rel_vars_txt), booktabs = T, linesep = "", caption = table_captions("variables", "Available variables for analysis.")) %>%
+kable_styling(latex_options = "striped")
+```
+
+Unfortunately openfootball does not provide other than results information (shots on goals statistic, or even players belonging to teams, ...) regarding the german bundesliga, although the table structure would principally foresee that; thus, for this analysis, the model to predict results needs to be solely based on information from past games. This will be a good start into the topic of soccer predictions anyways, as there is a need to construct team performance indicators out of the available data only.  For the future the basis is then hopefully built to extend the model with additional features, either by combining with other data sources or ideally being at some pint in the future available in the [openfootball](https://github.com/openfootball) tables.
+
+## Explore the data
+
+To recapitulate from the introduction, the goal of this report is to predict the rest of the most recent season 2019/20, as the COVID-19 related lock-down lead to a suspension of the league. At the time when the report was written, it was already clear, that the league had luckily been finished. Without spectators, but with real sports. 
+
+### Season 2019/20 and the COVID related lockdown
+
+As mentioned, a part of the season 2019/20 was already played before the lock-down. `r f.ref("fixt_played")` provides an overview of the results.
+
+```{r, echo = FALSE, fig.cap=figure_captions("fixt_played", "Fixtures already played in relevant season"), out.width = '100%', fig.fullwidth = T, fig.asp = 0.7, warning=FALSE,message=FALSE}
+fixt_played %>%
+  ggplot(., aes(x = team2, y = team1, fill = score1-score2)) +
+  geom_tile() +
+  # add the scorelines
+  geom_label(aes(label = paste(score1, score2, sep = "-")), fill = "white", size = 2.5) +
+  # colour where green shows team1 win and red an team2 win
+  scale_fill_gradient2(low = "darkred", high = "green", midpoint = 0, guide = FALSE) +
+  scale_x_discrete(limits = levels(fixt$team1), position = "top") +
+  scale_y_discrete(limits = rev(levels(fixt$team2))) +
+  theme_minimal() + theme(axis.text.x = element_text(angle = 20))
+```
+
+The standings at the time of the suspension of the league on `r stop_date` can be seen in `r t.ref("fixt_played_table")`^[every win leads to 3 points for the winning team and 0 points for the losing team; a draw results in 1 point for each of the two teams]:
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+# calculate league table for our played fixtures
+ dt <- fixt_played %>%
+   results_to_table(.) 
+
+kable(dt, booktabs = T, linesep = "", caption = table_captions("fixt_played_table", "League standings at time of league suspension."))
+```
+
+We see from the table (variable: games_played) that the league was actually suspended at the 25th round. The date of the announcement of the suspension was around `r stop_date`. Only frankfurt and bremen had 1 game less, meaning that these two teams have only played 24 rounds at the time of the lock-down.
+
+During the lock-down the remaining fixtures were rescheduled to dates in Mai and June, as shown in `r t.ref("fixt_open_table")`^[the games needed to be played without the support of visitors]. 
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+# remaining fixtures
+dt <- addmargins(table(fixt_open[, c("date", "round")])) 
+kable(dt, booktabs = T, linesep = "", caption = table_captions("fixt_open_table", "Rescheduled fixtures after lock-down."))
+```
+
+All in all, it is necessary to predict the outcomes of `r nrow(fixt_open)` games while `r nrow(fixt_played)` were already played in the season. 
+
+### Historic data
+
+In this context of the exploratory data analysis, historic data are supposed to be all available results until the lock-down resp. The date when the suspension of the league competition was announced (`r stop_date`).
+
+#### Results
+
+The three possible results of the outcome of one football match are:
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+print(pos.outcomes)
+```
+
+Over some seasons the observed probabilities of the results are: 
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+a <- results_past %>% filter(season %in% rel_seasons_long)
+
+t1 <- with(a, prop.table(table(winner, season),2)) %>% print
+```
+
+All in all, a draw is less likely than a win for one of the opposing teams. The more, it is evident, that team1 (the home team) was in each season likely to win more more often according to the descriptive statistics. This "home-advantage" is a common known effect in soccer games and is discussed a bit later.
+
+Coming back to the distribution of past results, one very basic model could therefore introduce a simple guess for each game's result according to these prevalent probabilities. However, there is need to obey a further piece of information, as we want to predict after-lock-down-results resp. results after the 25th round of a season. It should be noted that the occurrences for the possible outcomes differ if the series is split at the 25th game-week:  
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+cat("\nup to 25th round: \n")
+t3 <- with(a %>% filter(round <= cut_round), prop.table(table(winner, season),2))  %>% print
+
+cat("\nafter 25th round: \n")
+t2 <- with(a %>% filter(round > cut_round), prop.table(table(winner, season),2))  %>% print
+```
+
+The last part of the season (after 25th round) showed fewer draws and more wins of team1 (home win) regarding the most recent seasons. This makes also sense from a theoretical point of view. In the last phase of each league competition it is about the final position leading to relegation, championship and other consequences. Thus plenty of teams are encouraged to really win their games, because with a win one earns 3 points, while a draw only is worth one point.
+
+A basic model to randomly predict the result according to the observed probability of past occurrences of a win of the home team, a draw or a win of the away team, should therefore be based on the part of past seasons that reflects the league finish (~round 25 of relevant past season).
+
+#### Teams
+
+`r f.ref("teams_seasons")` provides an overview on the composition of the league. The color of the tiles reveals the points each team could gain throughout each season. Remember, in german bundesliga a team earns 3 points with a win, 1 point with a draw and 0 points if the opponent wins. 
+
+```{r, echo = FALSE, fig.cap=figure_captions("teams_seasons", "Team perfromance throughout past seasons."), out.width = '100%', fig.asp = 0.8, warning=FALSE,message=FALSE}
+melt_results(results_past) %>% group_by(team, season) %>%
+  summarize(points = sum(points)) %>% 
+  ggplot(aes(x = season, y = team, fill = points)) + 
+  geom_tile() + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(size = 7, angle = 30)) 
+
+```
+
+It is evident that not always the same teams are part of the league in each season. This is quite different to U.S. professional sports leagues with its license and franchise system, whereas [promotion and relegation](https://en.wikipedia.org/wiki/Promotion_and_relegation) is very common in European league competition.
+
+While some  teams like bayern and dortmund were consistently part of the first german league since 2000, unionberlin, paderborn and koeln were promoted from the 2nd bundesliga to the 1st league in the season 2019/20, whereas hannover, nuernberg and stuttgart were relegated. This fluctuation of course hampers the possibilities of taking the results of past seasons into consideration for model building. However, each season might also be influenced by transfers, ... so the results in the current season should be of main interest anyway, as this seem to be the best proxy for each teams general ability to perform in the season 2019/20. However, some teams like especially bayern and dortmund consistently performed very well during the last years, meaning that these are teams with constant success. Constant success of course makes it easier to buy good players, ..., whereas not so good teams always have the problem of facing a loss in income in case they get relegated. Such clubs are of course not primary target for star players, e.g. such players having proven to perform very well over several seasons.
+
+It is to find a compromise regarding model building and the inclusion of past seasons. In order not to lose too much information and acknowledging the fact that teams performance is not likely to change considerably on broad base, not the whole time series since 2000, but rather the last few seasons are kept for model building.
+
+In order to build a suitable model one needs to know about the strength of each team.
+Due to a lack of other data, one of the only remaining possibilities is to extract information on the strength based on past results.
+
+#### Scores/Goals
+
+Results are a consequence of scores resp. goals. In football it is desirable to score many goals and receive only a few. In terms of a team performance indicator it would be good to have a high mean in scored goals and a low mean value of received goals. Transferred to a graph, it is desirable to be at the right lower corner. 
+
+```{r, echo = FALSE, fig.cap=figure_captions("attack_defense", "Attack and defense score throughout past seasons."), out.width = '100%', fig.asp = 0.5, warning=FALSE,message=FALSE}
+team_param <- results_past %>% filter(season %in% rel_seasons_long) %>%
+  melt_results() %>%
+  group_by(season, team) %>%
+  summarise(attack = mean(g_for),
+            defense = mean(g_ag)) 
+
+team_param %>% filter(season %in% rel_seasons_short) %>% ggplot(aes(x = attack, y = defense, label = team)) + geom_point(size = 0.1) + 
+  geom_text(position=position_jitter(width=0.01,height=0.01), size = 2) +  facet_grid( ~season)
+```
+
+In the season 2017/18 *bayern*  did a very great job, scoring on average more than 2.5 goals per game over the season. The defense parameter with a value of about 0.8 received goals per game on the other hand was very low. So far, in the season 2019/20 (remember only 25 rounds played) *bayern* has as well the best combination of attack/defense score. **Attack and defense scores** give important insights in the ability of teams and should be further investigated in model building.
+
+Another intrinsic property of scoring goals in football needs attention. The number of goals a team scores is a discrete value. Taking the results from the most recent seasons, a few interesting properties of the data become clearer.
+
+```{r, echo = FALSE, fig.cap=figure_captions("score_team1_2", "Goals scored per home and away team in resent seeasons."), out.width = '100%', fig.asp = 0.5, warning=FALSE,message=FALSE}
+# plot goals scored home/away
+results_past %>% filter(season %in% rel_seasons_short) %>% melt_results() %>%
+  ggplot(., aes(x = as.factor(g_for), fill = loc)) +
+  geom_histogram(position = "dodge", stat = "count") +
+  scale_fill_manual(values = c("darkred", "lightblue")) +
+  facet_wrap(  ~season, nrow = 2) +
+  theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) + 
+  labs(title = "Goals scored from team1 (home) and team2 (away) in German Bundesliga",
+       subtitle = "for relevant seasons",
+       x = "goals scored",
+       y = "no of occurrences")
+```
+
+The maximum number of scored goals for one team was 8. This was achieved by a "team1" in the season 2018/19 as well as in season 2019/20^[be aware we are still assuming that we do not know the outcomes of that specific season for games after the lock-down. This is also the reason why the no of occurrences plotted on the y-axis are a bit lower.]. Generally, team1 tends to to score a higher number of goals than team 2. This can be attributed to the so-called home-advantage
+
+#### Home advantage
+
+It is common knowledge among football fans that there is some sort of an advantage for the home team, may it be because the players are more motivated, need not to travel to another city, do not get intimidated by the atmosphere, are backed by their own fans... 
+
+The effect becomes more visible after slightly changing the above illustration to show an overall density plot.
+
+```{r, echo = FALSE, fig.cap=figure_captions("score_density", "Density plot for goals scored."), out.width = '100%', fig.asp = 0.5, warning=FALSE,message=FALSE}
+results_past %>% 
+  melt_results() %>%
+  ggplot(., aes(x = g_for, fill = loc)) +
+  # smooth densities
+  geom_density(adjust = 8, alpha = 0.5) +
+  scale_fill_manual(values = c("darkred", "lightblue")) +
+  scale_x_continuous(breaks = 0:8) +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  labs(title = "Goals scored from team1 (home) and team2 (away) in German Bundesliga",
+       subtitle = "league games from season 2000/01 on-wards",
+       x = "goals scored",
+       y = "density") + theme_minimal()
+```
+
+To quantify the home advantage effect we can simply calculate a ratio of ***all goals scored form team1 / all goals scored form team2*** over the relevant seasons. Regarding the seasons from 2000/01 on-wards, this general effect results in an advantage of: 
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+# the home advantage is how much easier it is to score at home
+home_advantage <- results_past %>% 
+  filter(season %in% rel_seasons_long & round > cut_round) %>%
+  summarize(sum(score1) / sum(score2)) %>% pull %>% print
+```
+
+Home teams score on average 1.41 goals more.
+
+The above density plot further reveals similarity to the Poisson distribution. Thanks to the work of e.g @maher and @dixoncoles one can use the quite commonly used approximation for soccer games, that scores follow a Poisson distribution.
+
+#### Scores and the Poisson distribution
+
+The "Poisson distribution, named after French mathematician Siméon Denis Poisson, is a discrete probability distribution that expresses the probability of a given number of events occurring in a fixed interval of time or space if these events occur with a known constant mean rate and independently of the time since the last event."^[see https://en.wikipedia.org/w/index.php?title=Poisson_distribution#cite_note-Haight1967-1]. 
+
+In the context of the current analysis, the number of goals is expressed as a function of an average rate of goals. Furthermore goals occur in a fixed interval of time (90 minutes) and are independent of each other, meaning that they do no become more/less likely by the number of goals already scored in the match. Regarding this report, we consider this assumption to be sufficient, although there is also doubt on the suitability of a Poisson distribution to model soccer goals^[ see @greenhough and also the conclusion of David Sheehan's blog on Dixon-Coles processes [@sheehan].]
+
+The mathematical representation of the Poisson distribution is 
+
+$$P(x) = \frac{\lambda^{x}e^{-\lambda}}{x!}$$
+
+@sheehan and @hickman did a great job in their blogs explaining the details on how this distribution is useful for predicting soccer scores, being based itself on scientific work mentioned above ([@maher] and [@dixoncoles]).
+
+In short, the number of goals scored for the opposing teams in a match are assumed to follow a Poisson distribution and can therefore be predicted with a specific probability. The abilities of different teams to perform is based on information of past games, the parameter $\lambda$ can be used to incorporate team parameters like attacking strength and defense capabilities (calculated by the mean values of scored and received goals per each team). $\lambda$ might be further specified as a term like $\lambda = \alpha*\beta*\gamma$, with $\alpha$ representing attacking capabilities, $\beta$ defense skills and $\gamma$ the home advantage.
+
+@dixoncoles further developed such a basic Poisson model and introduced an interaction term to correct underestimated frequency of low scoring matches and applied time decay component so that recent matches are weighted more strongly.
+
+## Develop models 
+
+Regarding model development, it is assumed here to have the knowledge at the time of the lock-down. Thus the train and test set are defined in a way that all games after the 25th game-week in the season 2018/19^[and NOT the season 2019/20] need to be predicted.
+
+* test_set: all games after round 25 of season 2018/19
+* train_set: all games up to round 25 in season 2018/19 and all past games from seasons `r rel_season_modelbuild`.
+
+The predictions need to result in values of 0, 1 and 2, referring to 
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+print(pos.outcomes)
+```
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+#test_index <- createDataPartition(y = results_past$winner, times = 1, p = 0.2, list = FALSE)
+
+team_param <- results_all %>% filter(season %in% rel_season_modelbuild) %>%
+  melt_results() %>%
+  group_by(season, team) %>%
+  # we'll use the goals scored to model the attack
+  # and goals conceeded to measure defence rating
+  summarise(attack = mean(g_for),
+            defense = mean(g_ag)) 
+
+
+a <- results_all %>% filter(season %in% rel_season_modelbuild)
+
+
+
+a$attack1 <- team_param$attack[ match(paste(a$team1, a$season), 
+                                      paste(team_param$team, team_param$season)
+                                      )]
+a$defense1 <- team_param$defense[ match(paste(a$team1, a$season), 
+                                      paste(team_param$team, team_param$season)
+                                      )]
+
+a$attack2 <- team_param$attack[ match(paste(a$team2, a$season), 
+                                      paste(team_param$team, team_param$season)
+                                      )]
+a$defense2 <- team_param$defense[ match(paste(a$team2, a$season), 
+                                      paste(team_param$team, team_param$season)
+                                      )]
+
+test_index <- which(a$season == rel_season_modelbuild[length(rel_season_modelbuild)] & a$round > cut_round)
+train_set <- a[ -test_index,]
+test_set <- a[ test_index,]
+
+train_set$winner <- as.factor(train_set$winner)
+test_set$winner <- as.factor(test_set$winner)
+
+rel_teams <- unique(train_set$team1)
+```
+
+### Guessing results based on past distribution
+
+The exploratory analysis revealed to use probabilities specifically after the 25th game-week, as there tend to be fewer draws. The average chance of results to occur based on the results for the seasons `r rel_season_modelbuild[-length(rel_season_modelbuild)]` results in: 
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+t2 <- with(train_set %>% filter(round > cut_round), prop.table(table(winner, season),2))
+basic_res_p <- data.frame(draw = mean(t2[1,]), win_team1 = mean(t2[2,]), win_team2 = mean(t2[3,])) %>% print
+
+m_distr <- as.factor(sample.int(3, size = nrow(test_set), prob = basic_res_p, replace = TRUE)-1)
+res <- confusionMatrix(m_distr, test_set$winner)
+```
+
+Guessing the results of the test_set games gives an accuracy of `r res$overall["Accuracy"]`. The confusion matrix is listed below.
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+res$table
+```
+
+
+Hopefully a simple machine learning algorithm can perform better.
+
+### Classification (decision) tree
+
+The prediction of results can be seen as a classification problem with categorical outcome, with possible solutions derived from prediction trees.
+The simplest possible model to think of is just to predict the winner using the information on the team opponents of each game. 
+
+```{r, echo = TRUE, warning=FALSE,message=FALSE}
+tr.control <- trainControl(method = "repeatedcv",
+                           number = 25, repeats = 10)
+fit <- train(winner ~  team1 + team2, 
+             data = train_set,  method = "rpart", 
+             trControl = tr.control)
+```
+
+The resulting decision tree can be seen in the figure below.
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE, fig.asp=0.8, out.width= "65%"}
+par(oma=c(0,0,0,0))
+par(mar=c(0,0,0,0) + 0.1)
+plot(fit$finalModel)
+text(fit$finalModel)
+```
+
+On top of the tree is bayern, actually illustrating that they will win all their away games and in the second root also all of their home games. With the exception of games against bayern, dortmund is also supposed to win all their home games.
+
+All in all, the confusion matrix of this model shows the following properties: 
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+res <- confusionMatrix(predict(fit, newdata = test_set), test_set$winner)
+res
+```
+
+The accuracy is `r res$overall["Accuracy"]`, but as we only predict wins for either team1 or team2, especially the sensitivity of this model for class 0 (draw) is the lowest possible value namely 0, whereas specificity is 1.
+
+__Does it help to include attack and defense scores as outlined in the exploratory analysis?__
+
+
+```{r, echo = TRUE, warning=FALSE,message=FALSE}
+tr.control <- trainControl(method = "repeatedcv",
+                           number = 25, repeats = 10)
+fit <- train(winner ~ attack1 + defense1 + attack2 + defense2,  
+             data = train_set, method = "rpart", 
+             trControl = tr.control)
+```
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE, fig.asp=0.6, out.width= "65%"}
+par(oma=c(0,0,0,0))
+par(mar=c(0,0,0,0) + 0.1)
+plot(fit$finalModel)
+text(fit$finalModel)
+
+res <- confusionMatrix(predict(fit, newdata = test_set), test_set$winner)
+cat("\nConfusion Matrix: \n")
+res$table
+cat("\nAccuracy: ")
+res$overall[['Accuracy']]
+```
+
+Well, accuracy is actually the same. This model predicts a home win if the attack score of the home team is greater or equal to 1.83. If the attack1 score is lower than a home win is only predicted if the attack score of the opposing team is lower than 1.52.
+
+So this model is definitely simpler than out first try with team names, so let's see what is the result of multiple such trees.
+
+### Random forests
+
+@rafa[ p. 594] points out: 
+
+>Random forests are a very popular machine learning approach that addresses the shortcomings of decision trees using a clever idea. The goal is to improve prediction performance and reduce instability by averaging multiple decision trees (a forest of trees constructed with randomness). It has two features that help accomplish this.
+
+Applied to our model the results are:
+
+```{r, echo = TRUE, warning=FALSE,message=FALSE}
+tr.control <- trainControl(method = "repeatedcv",
+                           number = 25, repeats = 10)
+fit <- train(winner ~ attack1 + defense1 + attack2 + defense2,  
+             data = train_set, method = "rf",  
+             trControl = tr.control)
+fit
+res <- confusionMatrix(predict(fit, newdata = test_set), test_set$winner)
+res$table
+```
+
+The accuracy is `r res$overall[['Accuracy']]`. One common drawback of these classification tree based models is the prediction of the three categories of outcome (win_team1, win_team2, draw). Although this is the most important task to do, there might be in the end of the league competitions teams having the same amount of points. Then, the number of scored and received goals decides on who is ranked before.
+
+So, it is time to turn to another model approach relying on the Poisson distribution for scored goals, shortly introduced in the exploratory analysis. 
+
+### Model based on Poisson distribution for scores
+
+@hickman explains the advantages of using a Poisson distribution like $x_{ij} \sim Poisson(e ^ {\alpha_{i} – \beta_{j} + \gamma})$ where no matter what values $\alpha$ (attacking strength), $\beta$ (defensive power), or $\gamma$ (home advantage) take, the exponent of their sum will never be negative. When playing a very strong away teams, the mean goals will tend towards 0 (though will never actually reach it). Furthermore an iterative process is shown to optimize the parameters for the teams, and actually also keeping them within a normalized range of +/- 1. 
+
+```{r, eval = TRUE, echo = FALSE, fig.cap=figure_captions("alpha_beta_teams", "Optimized attack/defense parameters for teams."), out.width = '100%', fig.asp = 0.5, warning=FALSE,message=FALSE}
+
+# initialise parameters as all 0
+# log(1) = 0
+# remove the first team from the attack and defence ratings as values difference to 1 (sum up to one relist.param)
+equal_parameters <- list(
+  alpha = rep(0, length(rel_teams)-1) %>% `names<-`(rel_teams[2:length(rel_teams)]),
+  beta = rep(0, length(rel_teams)-1) %>% `names<-`(rel_teams[2:length(rel_teams)]),
+  gamma = 0
+)
+
+# initialise i to collect data about the optimisation process at each iteration
+#i <- 0
+# collect current parameter values and neg log likelihood at each iteration
+#current_parameters <- list()
+#current_nll <- list()
+
+# run our final calculation
+optimised_parameters <- optim(
+  par = unlist(equal_parameters), 
+  fn = optimise_params,
+  results = train_set,
+  method = "BFGS",
+  control = list(maxit = 10000))
+
+optimised_parameters$par %>%
+  # relist to add in first team
+  relist_params() %>%
+  unlist() %>%
+  # select team parameters
+  .[grepl("beta|alpha", names(.))] %>%
+  data.frame(value = .,
+             parameter = names(.)) %>%
+  separate(parameter, into = c("parameter", "team"), "\\.") %>%
+  # spread into wide format
+  spread(parameter, value) %>%
+  # pipe into a plot
+  ggplot(aes(x = alpha, y = beta)) +
+  geom_point() +
+  ggrepel::geom_text_repel(aes(label = team), size = 3) +
+  stat_smooth(method = "lm", se = FALSE) +
+  labs(title = "Optimized attack/defense parameters for teams",
+       subtitle = "",
+       x = "alpha (more likely to score ->)",
+       y = "beta (less likely to concede ->)") +
+  theme_minimal()
+
+
+predicted_results <- predict_results(test_set$team1,
+                                     test_set$team2, 
+                                     relist_params(optimised_parameters$par)) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  mutate(winner = case_when(
+    e_score1 > e_score2~1,
+    e_score1 < e_score2~2,
+    e_score1 == e_score2~0
+  )) 
+
+res <- confusionMatrix(as.factor(predicted_results$winner), test_set$winner)
+#res
+res$table
+#res$overall[['Accuracy']]
+#######################################
+#######################################
+``` 
+
+The accuracy of the model is `r res$overall[['Accuracy']]`. The Poisson model does not bring an improvement as far as the accuracy is concerned. The advantage of applying this Poisson model, however, is the availability of iteratively simulated most likely scoring results.
+
+```{r, echo = FALSE, fig.cap=figure_captions("rem_fixt", "Poisson model scores."), out.width = '100%', fig.asp = 0.7, warning=FALSE,message=FALSE}
+rbind(
+  predicted_results %>%
+    rename_if(is.numeric, gsub, pattern = "e_", replacement = "") %>%
+    mutate(type = "predicted"),
+  train_set  %>%
+    filter(season %in% rel_season_modelbuild[ length(rel_season_modelbuild)]) %>%
+    select(team1, team2, score1, score2, winner) %>%
+    mutate(type = "result")
+) %>%
+  ggplot(., aes(x = team2, y = team1, fill = score1-score2)) +
+  geom_tile() +
+  # add the scorelines
+  geom_label(aes(label = paste(round(score1,1), round(score2,1), sep = "-"), colour = type), fill = "white", size = 1.5) +
+  # colour where black for actual results and red for predictions
+  scale_colour_manual(values = c("red", "black")) +
+  # colour where green shows home win and red an away win
+  scale_fill_gradient2(low = "darkred", high = "green", midpoint = 0, guide = FALSE) +
+  scale_x_discrete(limits = levels(predicted_results$team1), position = "top") +
+  #scale_y_discrete(limits = rev(levels(predicted_results$team1))) +
+  theme_minimal() + theme(axis.text.x = element_text(angle = 30), legend.position = "bottom")
+
+```
+
+For final modeling the approach using the poisson distribution^[actually as optimized aatack and defense parameters wer introduced one might rather refer to it as a Dixon-Coles model [@dixoncoles]] is found to be most suitable, as it allows the prediction of goals, what might become essential for final league standings. 
+
+# Results
+
+Despite the lower accuracy compared to the tested classification trees, the decision was taken to model the final data^[test_set: all games after round 25 of season 2019/20; 
+train_set: all games up to lockdown and all past games from seasons `r rel_season_modelfinal`.] with the Dixon-Coles model, as it offers the possibility to predict specific team scores for each game, instead of only the overall 3 categories of results (win team1, win team2, draw). To further develop the chosen approach here, an existing package with an implementation of the Dixon/Coles approach^[regista package] is used on the initial prediction problem. 
+
+Redefining train and test sets accordingly, results in updated attack and defense parameters for each team.
+
+```{r, echo = FALSE, fig.cap=figure_captions("alpha_beta_final", "Optimized attack/defense parameters (Dixon-Coles)."), out.width = '100%', fig.asp = 0.6, warning=FALSE,message=FALSE}
+# plot strength of teams (plot created when main R file was sourced ...)
+p_final_att_def
+```
+
+The goal is still to predict the results of season 2019/20 after the temporary lock-down. Rerunning a simulation on each open league game  several times (to be precise the simulation was rerun `r  n.simrun` times) allows to get a probabilistic view on possible final league standings. The dotted lines in `r f.ref("dist_final")` already show the final place that each team achieved when the season could be finally finished after the lock-down related break.
+
+```{r, echo = FALSE, fig.cap=figure_captions("dist_final", "Simulated league finish."), out.width = '100%', fig.asp = 1.15, warning=FALSE,message=FALSE}
+#(plot created when main R file was sourced ...)
+p_pred_final
+```
+
+According to the simulations, bayern is very likely to finish the league as champion. However, there are also other teams with a champions chance. 
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+#get the predictions for the champion
+winner <- fit_final_predicted_finishes %>%
+  filter(predicted_finish < 2)%>%
+  mutate(prediction = "Champion chance")
+
+winner
+```
+
+At the lower side of the table, paderborn has a very high probability of finally occupying the last position. As the relegation places in german first bundesliga are the ranks 16 to 18, other teams in trouble as well.
+
+```{r, echo = FALSE, warning=FALSE,message=FALSE}
+#get predictions for those who would be relegated
+relegated  <- fit_final_predicted_finishes  %>%
+  filter(predicted_finish > 15) %>%
+  group_by(team) %>%
+  summarise(perc = sum(perc)) %>%
+  arrange(-perc) %>%
+  mutate(prediction = "Relegation chance")
+
+relegated
+```
+
+# Conclusion and outlook
+The purpose of this analysis was to get started in the highly interesting topic of soccer predictions using the knowledge and tools learnt throughout the data science course, but also already looking at tools that are commonly used for this purpose by other data scientists. Sports predictions are an interesting field in general, but it became of even greater relevance against the backdrops of the temporary suspension of whole leagues and the resulting uncertainty with questions: who would have won the league? Who would be relegated? ...
+
+This analysis was built on open public domain data-sets from [openfootball](https://github.com/openfootball). Such projects are very important as they provide recent data to the interested user free of charge. The drawback of course is the lack of individual team and player features, which could of course been helpful to get better predictions. That said, an integration of more features could be interesting especially to improve the performance of the classification trees model. Long story short, luckily plenty of interesting possibilities ahead, the more, as the new seasons already started as well.  
+
+
+# Appendix
+```{r}
+print(sessionInfo())
+```
+
+# References
